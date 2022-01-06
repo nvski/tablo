@@ -1,3 +1,5 @@
 .ipynb_checkpoints/
 media/
 my_demo.sh
+owm.key
+__pycache__
