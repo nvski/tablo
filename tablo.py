@@ -1,6 +1,7 @@
-#!//usr/bin/env python3.7
+#!//usr/bin/env python3.9
+
 # %%
-# import aiohttp  # instead of requests
+import aiohttp  # instead of requests
 import asyncio
 import datetime
 # import zoneinfo
@@ -23,7 +24,10 @@ apds9930.APDS9930_IDs = [0x29, 0x39]
 
 
 class Tablo:
-    def __init__(self, brightness: int = 30) -> None:
+    def __init__(self,
+            # root_widget:Widget,
+            brightness:int=30,
+            matrix:bool=True, bs=None) -> None:
         options = RGBMatrixOptions()
         options.drop_privileges = False
         options.rows = 64
@@ -40,9 +44,23 @@ class Tablo:
 
         self.image = Image.new('RGB', (128, 64), 'black')
 
+        self.has_matrix = matrix
         self.matrix = None
         self.options = options
-        self.start_matrix(options, brightness)
+        if self.has_matrix:
+            self.start_matrix(options, brightness)
+        # match bs:
+        #     case False:
+        #         self.bs = None
+        #         self.has_bs = False
+        #     case None:
+        #         self.bs = BrightnessScheduler()
+        #         self.has_bs = True
+        #     case _:
+        #         self.bs = bs
+        #         self.has_bs = True
+        
+        # self.root_widget = root_widget
 
     def start_matrix(self, options=None, brightness=30):
         if options is None:
@@ -88,11 +106,11 @@ class Widget:
             self.image = Image.new("RGB", self.size, '#000000')
         self.draw = ImageDraw.Draw(self.image)
 
-    def clear(self) -> None:
+    async def clear(self) -> None:
         self.draw.rectangle((0, 0)+self.size, fill='#000000')
         # self.place()
 
-    def _place(self) -> None:
+    async def _place(self) -> None:
         if self.alpha:
             mask = self.image
         else:
@@ -100,7 +118,7 @@ class Widget:
         tablo.image.paste(self.image, box=self.position, mask=mask)
         tablo.update()
 
-    def update_frame(self):
+    async def update_frame(self):
         pass
         # to be defined in subclasses individually
 
@@ -111,8 +129,8 @@ class Widget:
             return
         Widget.running_set.add(self)
         while self in Widget.running_set:
-            self.update_frame()
-            self._place()
+            await self.update_frame()
+            await self._place()
             await asyncio.sleep(self.rr - time.time() % self.rr)
 
     def start(self) -> None:
@@ -131,9 +149,9 @@ class Container_W(Widget):
         self.rr = widgets[0].rr
         # container self.rr overwrites widgets' rr 
 
-    def update_frame(self):
+    async def update_frame(self):
         for w in self.widgets:
-            w.update_frame()
+            await w.update_frame()
             self.image.paste(w.image, box=w.position)
 
 
@@ -144,7 +162,7 @@ class Test_W(Widget):
         super().__init__(*args, **kwargs)
         self.n = 0
 
-    def update_frame(self):
+    async def update_frame(self):
         y = self.n % self.h
         color = self.colors[self.n//self.h]
         self.draw.line((0, y, self.w, y), fill=color)
@@ -153,31 +171,34 @@ class Test_W(Widget):
 
 
 # %%
-DEFAULT_FONT = '/home/pi/tablo/fonts/OCRAStd.otf'
+DEFAULT_FONT = 'fonts/OCRAStd.otf'
+# DEFAULT_FONT = 'fonts/MinecraftRegular-Bmg3.otf'
 
 
 class Text_W(Widget):
     def __init__(self, *args,
-                 text_gen: tp.Optional[tp.Callable[[], str]] = None,
-                 font_name: str = DEFAULT_FONT, font_color="#ffffff",
+                 text_gen = None,
+                 font_name: str = DEFAULT_FONT, font_color:str="#ffffff",
+                 move:tp.Tuple[int,int]=(0,0),
                  **kwargs
                  ) -> None:
         super().__init__(*args, **kwargs)
         self._text_gen = text_gen
         self.font_obj = ImageFont.truetype(font_name, self.h)
         self.font_color = font_color
+        self.move = move
 
-    def text_gen(self):
+    async def text_gen(self):
         if isinstance(self._text_gen, tp.Callable):
             return self._text_gen()
         else:
             return 'text'
 
-    def update_frame(self) -> None:
-        self.clear()
-        text = self.text_gen()
+    async def update_frame(self) -> None:
+        await self.clear()
+        text = await self.text_gen()
         self.draw.multiline_text(
-            (0, 0), text, fill=self.font_color, font=self.font_obj)
+            self.move, text, fill=self.font_color, font=self.font_obj)
 
 
 class Time_W(Text_W):
@@ -189,7 +210,7 @@ class Time_W(Text_W):
         self.t_format = t_format
         super().__init__(*args, **kwargs)
 
-    def text_gen(self) -> str:
+    async def text_gen(self) -> str:
         t = datetime.datetime.now().astimezone(self.timezone)
         return t.strftime(self.t_format)
 
@@ -199,7 +220,7 @@ class Time_Arrows_W(Widget):
         super().__init__(*args, **kwargs)
         self.timezone = timezone
 
-    def update_frame(self) -> None:
+    async def update_frame(self) -> None:
         self.clear()
         t = time.time()
         r = min(self.w, self.h)/2
@@ -252,7 +273,7 @@ class BrightnessScheduler():
         return self._mem
 
     def lux_to_brightness(self, lux:float) -> float:
-        brightness = 1.5*lux**.65
+        brightness = 3*lux**.6
         brightness = min(100, brightness)
         brightness = max(1, brightness)
         return brightness
@@ -290,7 +311,7 @@ class AmbientSensor_W(Text_W):
         self.font_color = self.normal_color = font_color
         self.err_color = err_color
 
-    def text_gen(self):
+    async def text_gen(self):
         text = f" {tablo.matrix.brightness}"
         try:
             text = f"{round(self.bs.sensor.ambient_light)}" + text
@@ -310,25 +331,46 @@ class OWM_Data_Provider:
         "units": "metric"
     }
 
-    def __init__(self):
+    def __init__(self, session):
         with open("owm.key") as file:
             token = file.readline().rstrip()
+        self.session = session
         self.args = {"appid": token} | self.default_args
-        self.data: tp.Dict[str, tp.Any] = self.update_data(True)
+        self.data: tp.Dict[str, tp.Any] = None
         self.timeout = datetime.timedelta(minutes=2)
 
-    def last_upd(self) -> tp.Optional[datetime.datetime]:
-        if self.data is None:
-            return
-        else:
-            return datetime.datetime.fromtimestamp(self.data["current"]["dt"]).astimezone()
-
-    def update_data(self, force=False) -> tp.Dict[str, tp.Any]:
-        if force or datetime.datetime.now().astimezone() > self.last_upd() + self.timeout:
-            responce = requests.get(
-                self.one_call_api+'?'+'&'.join(k+'='+v for k, v in self.args.items()))
-            self.data = json.loads(responce.content)
+    async def update_data(self, force=False) -> tp.Dict[str, tp.Any]:
+        if force or self.data is None or datetime.datetime.now().astimezone() > self.data['current']['dt'] + self.timeout:
+            async with self.session.get(
+                self.one_call_api,
+                params=self.args,
+                raise_for_status=True
+            ) as resp:
+                self.data = await resp.json()
+            self.preproc_data()
         return self.data
+    
+    def _convert(self, data, f):
+        if not isinstance(data, tp.Mapping): return
+        for key in data.keys():
+            if key in ['dt', 'sunrise', 'sunset', 'start', 'end']:
+                data[key] = f(data[key])
+            elif isinstance(data[key], tp.Sequence):
+                for d in data[key]:
+                    self._convert(d, f)
+            else:
+                self._convert(data[key], f)
+
+    def preproc_data(self):
+        self.data['timezone'] = tz = datetime.timezone(
+            datetime.timedelta(seconds=self.data['timezone_offset']),
+            name=self.data['timezone']
+            )
+        del self.data['timezone_offset']
+
+        f = lambda x: datetime.datetime.fromtimestamp(x, tz)
+        self._convert(self.data, f)
+
 
 # owm_data = OWM_Data_Provider()
 
@@ -356,22 +398,26 @@ class Picture_W(Widget):
         self.image.paste(img, mask=mask)
 
 
-class OWM_Pic_W(Picture_W):
-    PREFIX = '/home/pi/tablo/icons/'
-    def __init__(self, *args, data_provider=None, **kwargs):
-        super().__init__(*args, **kwargs)
+class OWM_Pic_W(Text_W):
+    DICT = {"01d":"☀️", "01n":"🌑",
+            "02d":"🌤️", "02n":"☁️",
+            "03d":"⛅", "03n":"☁️",
+            "04d":"🌥️", "04n":"☁️",
+            "09d":"🌧️", "09n":"🌧️",
+            "10d":"🌦️", "10n":"🌦️",
+            "11d":"⛈️", "11n":"⛈️",
+            "13d":"❄️", "13n":"❄️",
+            "50d":"🌫️", "50n":"🌫"}
+    def __init__(self, *args, data_provider=None, font_name='fonts/seguiemj.ttf', move=(0,2), **kwargs):
+        super().__init__(*args, font_name=font_name, move=move, **kwargs)
+        self.draw.fontmode = "RGBA"
         self.data_provider = OWM_Data_Provider() if data_provider is None else data_provider
-        assert self.w == self.h, "Squared imgs only"
-        self.offset = round(self.w // 4)
 
-    def img_gen(self):
-        weathers = self.data_provider.update_data()["current"]["weather"]
-        i = round(time.time()) // self.rr % len(weathers)
-        weather = weathers[i]
-        path = self.PREFIX + weather["icon"] + ".png"
-        img = Image.open(path).resize((self.w+2*self.offset, self.h+2*self.offset))
-        img = img.crop((self.offset, self.offset, self.w+self.offset, self.h+self.offset))
-        return img
+    async def text_gen(self):
+        await self.data_provider.update_data()
+        w = self.data_provider.data["current"]["weather"][0]["icon"]
+        self.draw.fontmode = "L" if w.startswith("5") else "RGBA"
+        return self.DICT[w]
 
 #%%
 async def main():
@@ -386,25 +432,35 @@ async def main():
         tablo.clear()
     # tablo.image=Image.new('RGB', (128,64), 'green')
     
-    time_HH = Time_W((40, 28), (2,  3), rr=1, t_format="%H", font_color='#ffffff')
-    time_de = Text_W((20, 28), (37,  3), rr=1, text_gen=lambda: ":", font_color='#ffffff')
-    time_MM = Time_W((40, 28), (52,  3), rr=1, t_format="%M", font_color='#ffffff')
-    time_SS = Time_W((20, 12), (94, 1), rr=1, t_format="%S", font_color='#ffffff', alpha=True)
-    time = Container_W((114,28), (0,0), widgets=[time_de, time_HH, time_MM, time_SS])
+    async with aiohttp.ClientSession() as session:
+        time_HH = Time_W((40, 28), (2,  3), rr=1, t_format="%H", font_color='#ffffff')
+        time_de = Text_W((20, 28), (37,  3), rr=1, text_gen=lambda: ":", font_color='#ffffff')
+        time_MM = Time_W((40, 28), (52,  3), rr=1, t_format="%M", font_color='#ffffff')
+        time_SS = Time_W((20, 12), (94, 1), rr=1, t_format="%S", font_color='#ffffff', alpha=True)
+        time = Container_W((114,28), (0,0), widgets=[time_de, time_HH, time_MM, time_SS])
 
-    date_m = Time_W((35, 16), (0, 0), rr=5, t_format="%b", font_color='#787878')
-    date_d = Time_W((22, 16), (42, 0), rr=5, t_format="%d", font_color='#787878')
-    date_dow = Time_W((35, 16), (0, 16), rr=5, t_format="%a",    font_color='#787878')
-    date = Container_W((64,32), (0,28), widgets=[date_dow, date_m, date_d])
+        date_m = Time_W((35, 16), (0, 0), rr=5, t_format="%b", font_color='#787878')
+        date_d = Time_W((22, 16), (42, 0), rr=5, t_format="%d", font_color='#787878')
+        date_dow = Time_W((35, 16), (0, 16), rr=5, t_format="%a",    font_color='#787878')
+        date = Container_W((64,32), (0,28), widgets=[date_dow, date_m, date_d])
 
-    owm_data_provider = OWM_Data_Provider()
-    owm_pic = OWM_Pic_W((16,16), (0,0), rr=2, data_provider=owm_data_provider)
-    owm_temp = Text_W((35,16), (19,0), rr=2, text_gen=lambda:"%+d" % round(owm_data_provider.update_data()["current"]["temp"]))
-    owm = Container_W((54,16), (71, 44), widgets=[owm_pic, owm_temp])
+        owm_data_provider = OWM_Data_Provider(session)
+        owm_pic = OWM_Pic_W((20,16), (0,0), rr=2, data_provider=owm_data_provider)
+        owm_temp = Text_W((35,16), (19,0), rr=2, text_gen=lambda:"%+d" % round(owm_data_provider.data["current"]["temp"]))
+        owm = Container_W((54,16), (71, 44), widgets=[owm_pic, owm_temp])
+        
+        # x = 16
+        # im = Image.new('RGB', (4*x,x))
+        # f_name = 'fonts/OCRAStd.otf'
+        # fnt = ImageFont.truetype(f_name, x-2)
+        # draw = ImageDraw.ImageDraw(im)
+        # draw.fontmode = "1"
+        # draw.text((-1,2), text='🌩🌈☀', font=fnt, embedded_color='COLR')
+        # owm = Picture_W((54,x), (71, 44), img_gen=lambda:im)
 
-    amb = AmbientSensor_W(size=(32, 8), position=(94, 20), rr=.05)
+        # amb = AmbientSensor_W(size=(32, 8), position=(94, 20), rr=.05)
 
-    await asyncio.gather(*(w.run() for w in [time, date, amb, owm]))
+        await asyncio.gather(*(w.run() for w in [time, date, owm]))
 
 #%%
 
