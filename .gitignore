@@ -1,7 +1,7 @@
 .ipynb_checkpoints/
 media/
 my_demo.sh
-owm.key
+*.key
 __pycache__
 fonts/MinecraftBold-nMK1.otf
 fonts/MinecraftBoldItalic-1y1e.otf
