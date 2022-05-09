@@ -1,7 +1,11 @@
 .ipynb_checkpoints/
+.vscode/
 media/
 my_demo.sh
 *.key
+*.txt
+*.nb
+*.ipynb
 __pycache__
 fonts/MinecraftBold-nMK1.otf
 fonts/MinecraftBoldItalic-1y1e.otf
