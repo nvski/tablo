@@ -8,3 +8,4 @@ my_demo.sh
 *.ipynb
 __pycache__
 fonts/
+icons/
