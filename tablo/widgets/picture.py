@@ -2,7 +2,7 @@ import typing as tp
 import PIL.Image as Image
 
 
-from .base import Widget
+from ..base import Widget
 
 
 class Picture_W(Widget):

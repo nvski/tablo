@@ -1,4 +1,4 @@
-from .base import Widget
+from ..base import Widget
 
 from .ambiens_sensor import AmbientSensor_W
 from .container import Container_W

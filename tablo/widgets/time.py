@@ -3,7 +3,7 @@ import math
 import time
 
 
-from .base import Widget
+from ..base import Widget
 from .text import Text_W
 
 class Time_W(Text_W):

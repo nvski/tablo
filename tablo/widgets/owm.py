@@ -4,9 +4,9 @@ import os
 import pandas as pd
 import PIL.Image as Image
 import typing as tp
+from functools import cache
 
-
-from .base import Widget
+from ..base import Widget
 from .picture import Picture_W
 from .text import Text_W
 
@@ -114,15 +114,21 @@ class OWM_Todays_Weather(Widget):
 
 class OWM_Icon_W(Picture_W):
     def __init__(self, *args, data_provider, icon_path, **kwargs):
-        super().__init__(*args, **kwargs)
         self.path = icon_path
+        super().__init__(*args, **kwargs)
         self.data_provider = OWM_Data_Provider() if data_provider is None else data_provider
 
+    @staticmethod
+    @cache
+    def get_image(path):
+        bg = Image.new("RGB", (100,100), 'black')
+        im = Image.open(path)
+        bg.paste(im, mask=im)
+        return bg.crop((16,16,84,84))
+        
     async def img_gen(self):
         data = await self.data_provider.update_data()
         if data is not None:
-            w = data["current"]["weather"][0]["icon"] + ".png"
-            bg = Image.new("RGB", (100,100), 'black')
-            im = Image.open(os.path.join(self.path, w))
-            bg.paste(im, mask=im)
-            return bg.crop((16,16,84,84)).resize(self.size, Image.BICUBIC)
+            fname = data["current"]["weather"][0]["icon"] + ".png"
+            path = os.path.join(self.path, fname)
+            return self.get_image(path).resize(self.size, Image.BICUBIC)

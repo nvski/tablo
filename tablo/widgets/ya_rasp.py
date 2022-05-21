@@ -1,10 +1,13 @@
 import datetime
+import logging
 from PIL.ImageFont import truetype
 import typing as tp
 
+import aiohttp
+
 
 from .text import Text_W, DEFAULT_FONT
-from .base import Widget
+from ..base import Widget
 
 
 class YaRasp_Data_Provider:
@@ -15,7 +18,7 @@ class YaRasp_Data_Provider:
         "limit": "500"
     }
 
-    def __init__(self, session):
+    def __init__(self, session: aiohttp.ClientSession):
         with open("ya_rasp.key") as file:
             token = file.readline().rstrip()
         self.session = session
@@ -46,9 +49,9 @@ class YaRasp_Data_Provider:
                         self.preproc_data()
                         self.search_datetime = datetime.datetime.now()
                     else:
-                        print(f"Got api response status {resp_today.status} and {resp_tommorow.status}")
-            except Exception as e:
-                print(e)
+                        logging.warning(f"Got api response status {resp_today.status} and {resp_tommorow.status}")
+            except StopIteration as e:
+                logging.warning(repr(e))
         return self.data
     
 
@@ -90,25 +93,25 @@ class YaRasp_Simple_W(Text_W):
 
 class YaRasp_W(Widget):
     def __init__(self,
-            size, position, rr, alpha=False,
+            size, alpha=False,
             data_provider:YaRasp_Data_Provider = None,
             n_lines:int = 2, per_line_limit:int = 4, space=4,
             font_name: str = DEFAULT_FONT,
         ):
-        super().__init__(size=size, position=position, rr=rr, alpha=alpha)
+        super().__init__(size, alpha=alpha)
         if data_provider is None: raise ValueError
         self.data_provider = data_provider
 
         self.n_lines = n_lines
         self.per_line_limit = per_line_limit
-        self.font_obj = truetype(font_name, self.h//n_lines)
+        self.font_obj = truetype(font_name, self.h//n_lines-1)
         self.space = space
 
 
     async def get_line_data_generator(self) -> tp.List[tp.Mapping]:
         data = await self.data_provider.update_data()
         now = datetime.datetime.now(datetime.timezone.utc)
-        ordered_data = sorted(filter(lambda d: d["departure"]>now, data), key=lambda x:x["departure"])
+        ordered_data = sorted(filter(lambda d: d["departure"]>now, data), key=lambda d:d["departure"])
         batch = []
         for train in ordered_data:
             if len(batch) >= self.per_line_limit:
@@ -120,6 +123,8 @@ class YaRasp_W(Widget):
             prev_train_hour = batch[-1]["departure"].strftime("%Y-%m-%dT%H")
             curr_train_hour = train["departure"].strftime("%Y-%m-%dT%H")
             if prev_train_hour == curr_train_hour:
+                if batch[-1] == train:
+                    continue
                 batch.append(train)
             else:
                 yield batch
@@ -127,20 +132,29 @@ class YaRasp_W(Widget):
 
 
     async def update_frame(self):
-        await self.clear()
-        i = -1
+        self.clear()
+        i = 0
         async for line in self.get_line_data_generator():
             assert line
-            i += 1
-            offset_h = self.h * i // self.n_lines
+            offset_h = self.h * i // self.n_lines + 1
             offset_w = 0
             for j, train in enumerate(line):
-                text = train["departure"].strftime("%M" if j else "%H:%M")
+                if j==0:
+                    text = train["departure"].strftime("%H")
+                    w, h = self.draw.textsize(text, self.font_obj)
+                    self.draw.rectangle(((offset_w,offset_h-1),(w+offset_w,h+offset_h)), fill=train["thread"]["transport_subtype"]["color"])
+                    self.draw.multiline_text(
+                        (offset_w, offset_h),
+                        text, font=self.font_obj, fill="black")
+                    offset_w += w+self.space
+
+                text = train["departure"].strftime("%M")
                 self.draw.multiline_text(
                     (offset_w, offset_h),
                     text, font=self.font_obj, fill=train["thread"]["transport_subtype"]["color"])
                 w, h = self.draw.textsize(text, self.font_obj)
                 offset_w += w+self.space
+            i += 1
             if i == self.n_lines: break
             
 

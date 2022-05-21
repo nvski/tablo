@@ -1,10 +1,10 @@
-from ..base import Tablo
-from ..brightness import BrightnessScheduler
+# from ..base import Tablo
+# from ..brightness import BrightnessScheduler
 from .text import Text_W
 
 
-tablo = Tablo()
-bs = BrightnessScheduler()
+# tablo = Tablo()
+# bs = BrightnessScheduler()
 
 
 class AmbientSensor_W(Text_W):
