@@ -12,16 +12,17 @@ class Picture_W(Widget):
         super().__init__(*args, **kwargs)
         self._img_gen = img_gen
 
-    async def img_gen(self):
-        if isinstance(self._img_gen, tp.Callable):
-            return self._img_gen()
+    async def img_generator(self) -> tp.AsyncIterable[Image.Image]:
+        if self._img_gen is not None:
+            while True: yield self._img_gen()
         else:
-            return Image.new("RGB", self.size, "white")
+            while True: yield Image.new("RGB", self.size, "white")
 
-    async def update_frame(self):
-        img = await self.img_gen()
-        if self.alpha and img.mode=='RGBA':
-            mask=img
-        else:
-            mask=None
-        self.image.paste(img, mask=mask)
+    async def image_generator(self):
+        async for img in self.img_generator():
+            if self.alpha and img.mode=='RGBA':
+                mask=img
+            else:
+                mask=None
+            if img is not None: self.image.paste(img, mask=mask)
+            yield self.image

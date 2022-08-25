@@ -2,7 +2,7 @@ from ..base import Widget
 
 from .ambiens_sensor import AmbientSensor_W
 from .container import Container_W
-from .owm import OWM_Data_Provider, OWM_Emoji_Icon_W, OWM_Icon_W, OWM_Todays_Weather
+from .owm import OWM_Data_Provider, OWM_Emoji_Icon_W, OWM_Icon_W#, OWM_Todays_Weather
 from .picture import Picture_W
 from .text import Text_W
 from .time import Time_W, Time_Arrows_W

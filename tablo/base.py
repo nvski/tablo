@@ -1,10 +1,13 @@
 import asyncio
+import datetime
 import logging
 import time
 import typing as tp
 from dataclasses import dataclass, field, replace
 from PIL import Image, ImageDraw
+import aiohttp
 from rgbmatrix import RGBMatrix, RGBMatrixOptions
+from .brightness import BrightnessScheduler
 
 
 logging.basicConfig(level=logging.INFO)
@@ -25,7 +28,7 @@ class Widget:
     def clear(self) -> None:
         self.draw.rectangle((0, 0)+self.size, fill='#000000')
 
-    async def image_generator(self) -> tp.AsyncGenerator[Image.Image, None]:
+    async def image_generator(self) -> tp.AsyncIterable[Image.Image]:
         while True:
             await self.update_frame()
             yield self.image
@@ -41,7 +44,7 @@ class Widget:
 class Node(tp.Generic[T]):
     obj: T
     position: tp.Tuple[int, int] = (0,0)
-    refresh_rate: float = None
+    refresh_rate: tp.Optional[float] = None
 
 
 @dataclass
@@ -57,7 +60,7 @@ class Layout:
             else:
                 yield node
     
-    def flatten(self) -> "Layout":
+    def flatten(self) -> "tp.List[Node[Widget]]":
         return list(self.nodes((0,0)))
 
 
@@ -76,7 +79,7 @@ class Tablo():
         options.drop_privileges = False
         options.rows = 64
         options.cols = 128
-        options.chain_length = 2
+        options.chain_length = 1
         options.led_rgb_sequence = 'RBG'
         options.panel_type = 'FM6126A'
         options.hardware_mapping = 'regular'
@@ -109,11 +112,12 @@ class Tablo():
         self.image = Image.new('RGB', (128, 64), 'black')
         self.update()
 
-    def run(self, layout: Layout, brightness_scheduler=None) -> tp.NoReturn:
+    async def run(self, layout: Layout, brightness_scheduler:tp.Optional[BrightnessScheduler]=None) -> tp.NoReturn:
         tasks = [self.run_node(node) for node in layout.nodes()]
         if brightness_scheduler is not None:
             tasks.append(self.run_brightness_scheduler(brightness_scheduler))
-        return asyncio.gather(*tasks)
+        returns = await asyncio.gather(*tasks)
+        raise RuntimeError(f"All tasks finished unexpectedly:\n{returns}")
 
     async def run_node(self, node:Node[Widget]) -> tp.NoReturn:
         async for image in node.obj.image_generator():
@@ -123,9 +127,40 @@ class Tablo():
                 mask = None
             self.image.paste(image, box=node.position, mask=mask)
             self.update()
+            assert isinstance(node.refresh_rate, (int, float)), f"refresh rate is {type(node.refresh_rate)}, should be numerical"
+            assert node.refresh_rate > 0
             await asyncio.sleep(node.refresh_rate - time.time() % node.refresh_rate)
+        raise RuntimeError(f"Infinite generator ended in {node}")
 
-    async def run_brightness_scheduler(self, brightness_scheduler) -> tp.NoReturn:
+    async def run_brightness_scheduler(self, brightness_scheduler:BrightnessScheduler) -> tp.NoReturn:
         async for new_brightness in brightness_scheduler.brightness_generator():
             self.update(new_brightness)
             await asyncio.sleep(brightness_scheduler.refresh_rate - time.time() % brightness_scheduler.refresh_rate)
+        raise RuntimeError("Infinite generator ended")
+
+Data_T = tp.TypeVar("Data_T")
+class BaseDataProvider(tp.Generic[Data_T]):
+    data: tp.Optional[Data_T]
+    def __init__(self, session:tp.Optional[aiohttp.ClientSession]=None):
+        self.session = session
+        self.timeout = datetime.timedelta(minutes=2)
+        self.data = None
+
+
+    @property
+    def last_update(self) -> tp.Optional[datetime.datetime]:
+        raise NotImplementedError
+    
+    def _timed_out(self):
+        return self.last_update is None or \
+            datetime.datetime.now().astimezone() > self.last_update + self.timeout
+
+    async def update_data(self) -> None:
+        raise NotImplementedError()
+
+    async def data_generator(self) -> tp.AsyncIterable[tp.Optional[Data_T]]:
+        while True:
+            if self._timed_out():
+                await self.update_data()
+            yield self.data
+   

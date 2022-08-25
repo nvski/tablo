@@ -32,8 +32,11 @@ class BrightnessScheduler():
 
     async def brightness_generator(self) -> tp.AsyncGenerator[tp.Optional[int], None]:
         while True:
+            if self.sensor is None:
+                self._init_sensor()
+                continue
             try:
-                lux = self.sensor.ambient_light
+                lux:float = self.sensor.ambient_light
                 if lux < 0:
                     lux = 1500
                 brightness = self.lux_to_brightness(lux)

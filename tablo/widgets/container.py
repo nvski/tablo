@@ -1,6 +1,7 @@
 import asyncio
 import typing as tp
 import logging
+from warnings import warn
 
 # import aiostream.stream as stream
 from ..base import Layout, Widget
@@ -39,3 +40,4 @@ class Container_W(Widget):
                     self.image.paste(im, box=pos)
 
             yield self.image
+        raise RuntimeError(f"Infinite iterator ended in Container_W; {self.layout=}")

@@ -1,23 +1,24 @@
 import datetime
 import math
 import time
-
+import typing as tp
 
 from ..base import Widget
 from .text import Text_W
 
 class Time_W(Text_W):
     def __init__(self, *args,
-                 timezone: datetime.tzinfo = None, t_format: str = "%p %I:%M:%S",
+                 timezone: tp.Optional[datetime.tzinfo] = None, t_format: str = "%p %I:%M:%S",
                  **kwargs
                  ) -> None:
         self.timezone = timezone
         self.t_format = t_format
         super().__init__(*args, **kwargs)
 
-    async def text_gen(self) -> str:
-        t = datetime.datetime.now().astimezone(self.timezone)
-        return t.strftime(self.t_format)
+    async def text_generator(self) -> tp.AsyncIterable[str]:
+        while True:
+            t = datetime.datetime.now().astimezone(self.timezone)
+            yield t.strftime(self.t_format)
 
 
 class Time_Arrows_W(Widget):
