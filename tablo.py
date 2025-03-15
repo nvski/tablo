@@ -39,9 +39,10 @@ def gen_layout():
     date = Container_W((59,36), layout=date_layout)  #0,28
     
     owm_data_provider = OWM_Data_Provider()
-    owm_pic = OWM_Icon_W((26,26), icon_path='/home/pi/tablo/icons', data_provider=owm_data_provider)
+    # owm_data_provider.timeout = datetime.timedelta(minutes=5)
+    owm_pic = OWM_Icon_W((26,26), icon_path='/home/anton/tablo/icons', data_provider=owm_data_provider)
     owm_temp = Text_W((33,17), text_func=lambda:"%+d" % round(
-        owm_data_provider.data["current"]["temp"]) if owm_data_provider.data else "E"
+        owm_data_provider.data["main"]["temp"]) if owm_data_provider.data else "E"
         )
     owm_layout = Layout([
         Node(owm_pic, (0,0)),

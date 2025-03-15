@@ -1,0 +1,16 @@
+[Unit]
+Description=Tablo runner
+Requires=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/anton/tablo
+ExecStartPre=modprobe -r snd_bcm2835
+# ExecStartPre=modprobe i2c-dev  # already in cmdline.txt
+ExecStart=python3 tablo.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

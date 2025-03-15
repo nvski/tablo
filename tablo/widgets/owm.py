@@ -9,13 +9,13 @@ from functools import cache
 from warnings import warn
 
 from ..base import Widget, BaseDataProvider
-from .picture import Picture_W
 from .text import Text_W
 
 
 OWM_Data_T = tp.NewType("OWM_Data_T", tp.Dict[str,tp.Any])
 class OWM_Data_Provider(BaseDataProvider[OWM_Data_T]):
-    one_call_api = 'http://api.openweathermap.org/data/2.5/onecall'
+    timeout = datetime.timedelta(minutes=2)
+    one_call_api = 'https://as-api.openweathermap.org/data/2.5/weather/'
     default_args = {
         "lang": "ru",
         "lat": "55.729270",
@@ -32,25 +32,25 @@ class OWM_Data_Provider(BaseDataProvider[OWM_Data_T]):
 
 
     async def update_data(self) -> None:
-        if self.session is None or self.session.closed:
-            self.session = aiohttp.ClientSession()
-        async with self.session.get(
-            self.one_call_api,
-            params=self.args,
-            # raise_for_status=True
-        ) as resp:
-            if (st:=resp.status) == 200:
-                self.data = await resp.json()  #type:ignore
-                self._preproc_dates()
-                self.err = None
-            else:
-                self.err = await resp.text()
-                print(f"Got api response status {st}.\n{self.err}")
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                self.one_call_api,
+                params=self.args,
+                ssl=False,
+                # raise_for_status=True
+            ) as resp:
+                if (st:=resp.status) == 200:
+                    self.data = await resp.json()
+                    self._preproc_dates()
+                    self.err = None
+                else:
+                    self.err = await resp.text()
+                    print(f"Got api response status {st}.\n{self.err}")
         
     @property
     def last_update(self) -> tp.Optional[datetime.datetime]:
         if self.data is not None:
-            return self.data['current']['dt']
+            return self.data['dt']
 
     def _convert_dates(self, data, f) -> None:
         if not isinstance(data, tp.Dict): return
@@ -66,10 +66,8 @@ class OWM_Data_Provider(BaseDataProvider[OWM_Data_T]):
     def _preproc_dates(self):
         if self.data is None: return
         self.data['timezone'] = tz = datetime.timezone(
-            datetime.timedelta(seconds=self.data['timezone_offset']),
-            name=self.data['timezone']
+            datetime.timedelta(seconds=self.data['timezone'])
             )
-        del self.data['timezone_offset']
 
         f = lambda x: datetime.datetime.fromtimestamp(x, tz)
         self._convert_dates(self.data, f)
@@ -116,7 +114,7 @@ class OWM_Emoji_Icon_W(Text_W):
 #         for t in range(math.floor(a/10)*10, b, 10):
 #             pass
 
-class OWM_Icon_W(Picture_W):
+class OWM_Icon_W(Widget):
     def __init__(self, *args, data_provider=..., icon_path, **kwargs):
         self.path = icon_path
         super().__init__(*args, **kwargs)
@@ -133,7 +131,7 @@ class OWM_Icon_W(Picture_W):
     async def image_generator(self) -> tp.AsyncIterable[Image.Image]:
         async for data in self.data_provider.data_generator():
             if data is not None:
-                fname = data["current"]["weather"][0]["icon"] + ".png"
+                fname = data["weather"][0]["icon"] + ".png"
                 path = os.path.join(self.path, fname)
                 yield self.get_image(path).resize(self.size, Image.BICUBIC)
         

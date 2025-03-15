@@ -84,7 +84,7 @@ class Tablo():
         options.panel_type = 'FM6126A'
         options.hardware_mapping = 'regular'
         options.gpio_slowdown = 2
-        options.pwm_bits = 14
+        options.pwm_bits = 14  # needs recompiling with `kBitPlanes = 14; kDefaultBitPlanes = 14;` in framebuffer-internal.h
         options.pwm_dither_bits = 1
         options.pwm_lsb_nanoseconds = 50
         # options.scan_mode = 1

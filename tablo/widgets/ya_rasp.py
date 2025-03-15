@@ -18,16 +18,18 @@ class YaRasp_Data_Provider:
         "limit": "500"
     }
 
-    def __init__(self, session: aiohttp.ClientSession):
+    def __init__(self, session: tp.Optional[aiohttp.ClientSession]):
         with open("ya_rasp.key") as file:
             token = file.readline().rstrip()
         self.session = session
         self.args = {"apikey": token} | self.default_args
-        self.data: tp.Dict[str, tp.Any] = None
+        self.data: tp.Optional[tp.List[tp.Dict[str, tp.Any]]] = None
         self.search_datetime = None
         self.timeout = datetime.timedelta(minutes=10)
 
-    async def update_data(self, force=False) -> tp.Dict[str, tp.Any]:
+    async def update_data(self, force=False) -> tp.Optional[tp.List[tp.Dict[str, tp.Any]]]:
+        if self.session is None:
+            self.session = aiohttp.ClientSession()
         if force or self.search_datetime is None or datetime.datetime.now() > self.search_datetime + self.timeout:
             today = datetime.date.today()
             tommorow = today + datetime.timedelta(days=1)
@@ -42,10 +44,13 @@ class YaRasp_Data_Provider:
                     # raise_for_status=True
                 ) as resp_tommorow:
                     if resp_today.status == resp_tommorow.status == 200:
-                        today_data = await resp_today.json()
-                        self.data = today_data["segments"]
-                        tommorow_data = await resp_tommorow.json()
-                        self.data += tommorow_data["segments"]
+                        today_data: tp.Dict[str, tp.Any] = await resp_today.json()
+                        today_segments: tp.List[tp.Dict[str, tp.Any]] = today_data["segments"]
+                        self.data = today_segments
+
+                        tommorow_data: tp.Dict[str, tp.Any] = await resp_tommorow.json()
+                        tommorow_segments: tp.List[tp.Dict[str, tp.Any]] = tommorow_data["segments"]
+                        self.data += tommorow_segments
                         self.preproc_data()
                         self.search_datetime = datetime.datetime.now()
                     else:
@@ -59,7 +64,7 @@ class YaRasp_Data_Provider:
         if isinstance(data, tp.Sequence) and not isinstance(data, str):
             for d in data:
                 self._convert(d)
-        elif isinstance(data, tp.Mapping):
+        elif isinstance(data, tp.Dict):
             for key in data.keys():
                 if key in ['arrival', 'departure']:
                     data[key] = datetime.datetime.fromisoformat(data[key])
@@ -80,6 +85,7 @@ class YaRasp_Simple_W(Text_W):
 
     async def get_next_train(self, k=0):
         data = await self.data_provider.update_data()
+        assert data is not None
         now = datetime.datetime.now(datetime.timezone.utc)
         next_train = sorted(filter(lambda d: d["departure"]>now, data), key=lambda x:x["departure"])[k]
         return next_train["departure"].strftime("%H:%M"), next_train["thread"]["transport_subtype"]["color"]
@@ -94,7 +100,7 @@ class YaRasp_Simple_W(Text_W):
 class YaRasp_W(Widget):
     def __init__(self,
             size, alpha=False,
-            data_provider:YaRasp_Data_Provider = None,
+            data_provider:tp.Optional[YaRasp_Data_Provider] = None,
             n_lines:int = 2, per_line_limit:int = 4, space=4,
             font_name: str = DEFAULT_FONT,
         ):
@@ -108,7 +114,7 @@ class YaRasp_W(Widget):
         self.space = space
 
 
-    async def get_line_data_generator(self) -> tp.List[tp.Mapping]:
+    async def get_line_data_generator(self) -> tp.AsyncIterable[tp.Mapping]:
         data = await self.data_provider.update_data()
         now = datetime.datetime.now(datetime.timezone.utc)
         ordered_data = sorted(filter(lambda d: d["departure"]>now, data), key=lambda d:d["departure"])
